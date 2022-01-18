@@ -9,9 +9,7 @@ from transformers import T5Tokenizer, top_k_top_p_filtering, AutoModelForCausalL
 import torch
 import torch.nn as nn
 
-from utils.utils import create_logger
-
-logger = create_logger()
+from utils.utils import logger
 
 
 def set_seed(seed=42):
@@ -28,26 +26,34 @@ def summary(text: str,
             model: AutoModelForCausalLM,
             tokenizer: T5Tokenizer,
             max_seq_len: int = 512,
-            summary_max_len: int = 128) -> str:
+            summary_max_len: int=128) -> str:
 
     tokens = tokenizer.encode(text=text,
                               max_length=max_seq_len,
                               truncation=True)[:-1] + [tokenizer.sep_token_id]
     
     tokens = torch.tensor(tokens).to(device).unsqueeze(0)
-
-    sep_idx = len(tokens)-1
+    
+    sep_idx = tokens.shape[-1]-1
     with torch.no_grad():
+        punc_id = 8
+        punc_count = 0
+        # while True:
         for _ in range(summary_max_len):
             last_logit = model(tokens).logits[:, -1]
 
             filter = top_k_top_p_filtering(last_logit, top_k=50, top_p=1.0)
             props = nn.functional.softmax(filter, dim=-1)
             final_token = torch.multinomial(props, num_samples=1)
-            if final_token[0, 0].cpu().numpy() == tokenizer.eos_token_id:
-                return tokenizer.decode(tokens.tolist()[0][sep_idx:])
 
             tokens = torch.cat([tokens, final_token], dim=-1)
+            token_id = final_token[0, 0].cpu().numpy()
+
+            if token_id==punc_id:
+                punc_count += 1
+            if token_id == tokenizer.eos_token_id or punc_count>=3:
+                return tokenizer.decode(tokens.tolist()[0][sep_idx:])
+        
         return tokenizer.decode(tokens.tolist()[0][sep_idx:])
 
 
@@ -62,8 +68,11 @@ def main():
     args = parser.parse_args()
 
     SUMMARY_MAX_LEN = args.summary_max_len
-    CHECK_POINT = args.checkpoint
-    DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    CHECK_POINT: str = args.checkpoint
+    # import os
+    # os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+    # os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2"
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     set_seed()
 
@@ -93,7 +102,7 @@ def main():
     
     df = pd.DataFrame({'title': test_data.title.tolist(), 'source': test_data.raw_source.tolist(), 'target': test_data.raw_target,
                       'sys_summary': sys_summaries, 'link': test_data.link.tolist()}, columns=['title', 'source', 'target', 'sys_summary', 'link'])
-    df.to_csv(os.path.join(args.root_dir, 'sys_summaries.csv'))
+    df.to_csv(os.path.join(args.root_dir, 'sys_summaries.csv'), index=False)
 
 if __name__ == '__main__':
     main()

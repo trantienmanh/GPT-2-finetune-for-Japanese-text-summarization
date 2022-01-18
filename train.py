@@ -8,8 +8,7 @@ import torch.nn as nn
 import numpy as np
 
 from utils.dataset import dataset
-from utils.utils import create_logger, EarlyStopping, set_seed
-logger = create_logger()
+from utils.utils import EarlyStopping, set_seed, logger
 
 
 def initialize(device,
@@ -85,7 +84,7 @@ def validate(model, criterion, val_iter, device):
     running_loss = 0.0
     with torch.no_grad():
         for batch in val_iter:
-            source_ids, source_mask, target_ids = tuple(t.to(device) for t in batch)
+            source_ids, source_mask, target_ids, _ = tuple(t.to(device) for t in batch)
             # batch_size = input_ids.size(0)
 
             logits = model(input_ids=source_ids, attention_mask=source_mask).logits
@@ -117,7 +116,7 @@ def train(model, criterion, optimizer, scheduler, train_iter, val_iter, check_po
             loss = step(model, criterion, optimizer, scheduler, batch, device)
             running_loss += loss
 
-            if (idx+1) % 50 == 0 or idx == 0:
+            if (idx+1) % 100 == 0 or idx == 0:
                 print("Epoch: {}/{} - iter: {}/{} - train_loss: {}".format(epoch + 1, epochs, idx+1, len(train_iter), running_loss/(idx+1)))
         else:
             train_loss = running_loss/(len(train_iter))
@@ -174,8 +173,11 @@ def main():
     PATIENCE = args.patience
     DELTA = args.delta
 
-    DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-
+    torch.cuda.set_device(3)
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
+    os.environ["CUDA_VISIBLE_DEVICES"]="0,1,2,3"
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger.info(f"Using device: {DEVICE}")
     set_seed()
 
     logger.info(f"Loading T5Tokenizer for 'rinna/japanese-gpt2-medium' model...")
@@ -222,6 +224,7 @@ def main():
     }, os.path.join(CHECKPOINT, 'config.pt'))
 
     logger.info('Training model...\n')
+    logger.info(f'Using lr = {LR}')
     start = time.time()
     train(model=model,
           criterion=criterion,
@@ -234,6 +237,7 @@ def main():
           device=DEVICE,
           patience=PATIENCE,
           delta=DELTA)
+          
     print(f'Total time: {(time.time()-start)} seconds')
 
 

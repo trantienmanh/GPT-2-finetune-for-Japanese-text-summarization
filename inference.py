@@ -1,17 +1,11 @@
-import random, os
 import numpy as np
 import torch
-from torch.utils import data
-from tqdm import tqdm
-import pandas as pd
-import argparse
+import argparse, random
 from transformers import T5Tokenizer, top_k_top_p_filtering, AutoModelForCausalLM
 import torch
 import torch.nn as nn
 
-from utils.utils import create_logger
-
-logger = create_logger()
+from utils.utils import logger
 
 
 def set_seed(seed=42):
@@ -24,18 +18,18 @@ def set_seed(seed=42):
 
 
 def summary(text: str,
-            device,
+            device: torch.device,
             model: AutoModelForCausalLM,
             tokenizer: T5Tokenizer,
             max_seq_len: int = 512,
-            summary_max_len: int = 64) -> str:
-    
+            summary_max_len: int = 128) -> str:
+
     tokens = tokenizer.encode(text=text,
-                            return_tensors='pt',
-                            max_length=max_seq_len,
-                            truncation=True)[:-1].to(device) + [tokenizer.sep_token_id]
-    # separated token
-    # only decode to string over tokens are generated from system: token_idx>sep_idx
+                              max_length=max_seq_len,
+                              truncation=True)[:-1] + [tokenizer.sep_token_id]
+    
+    tokens = torch.tensor(tokens).to(device).unsqueeze(0)
+
     sep_idx = len(tokens)-1
     with torch.no_grad():
         for _ in range(summary_max_len):
@@ -44,10 +38,11 @@ def summary(text: str,
             filter = top_k_top_p_filtering(last_logit, top_k=50, top_p=1.0)
             props = nn.functional.softmax(filter, dim=-1)
             final_token = torch.multinomial(props, num_samples=1)
-            if final_token[0, 0].cpu().numpy() == tokenizer.eos_token_id:
-                return tokenizer.decode(tokens.tolist()[0][sep_idx:])
 
             tokens = torch.cat([tokens, final_token], dim=-1)
+            if final_token[0, 0].cpu().numpy() == tokenizer.eos_token_id:
+                return tokenizer.decode(tokens.tolist()[0][sep_idx:])
+                
         return tokenizer.decode(tokens.tolist()[0][sep_idx:])
 
 
@@ -56,8 +51,6 @@ def main():
 
     parser.add_argument('--summary_max_len', type=int, default=64, help='number of summary tokens will be generated')
     parser.add_argument('--checkpoint', type=str, default='./checkpoint')
-    parser.add_argument('--root_dir', type=str, default='./data')
-    parser.add_argument('--file_name', type=str, default='jp_text_sum.csv')
     parser.add_argument('--max_seq_len', type=int, default=512)
     args = parser.parse_args()
 
@@ -79,20 +72,6 @@ def main():
     ckp = torch.load(CHECK_POINT)
     model.load_state_dict(ckp['model_state_dict'])
 
-
-    # sys_summaries = []
-    # for artl in tqdm(test_data.text, desc='Generating text summary', ncols=100, nrows=5):
-    #     sys_summary = summary(text=artl,
-    #                     device = DEVICE,
-    #                     model=model,
-    #                     tokenizer=tokenizer,
-    #                     summary_max_len=SUMMARY_MAX_LEN)
-    #     sys_summaries.append(sys_summary)
-    # logger.info(f"Saving system summaries to {os.path.join(args.root_dir, 'sys_summaries.csv')}")
-    # df = pd.DataFrame({'articles': test_data.text.tolist() ,'reference_sum': test_data.abstract.tolist(), 'sys_sum': sys_summaries}, columns=['text', 'reference_sum', 'sys_sum'])
-    # df.to_csv(os.path.join(args.root_dir, 'sys_summaries.csv'))
-    
-    
     while True:
         text = input("Enter text here: ")
         s = summary(text=text,

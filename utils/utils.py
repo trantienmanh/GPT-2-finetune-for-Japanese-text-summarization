@@ -3,13 +3,26 @@ import random
 import numpy as np
 import torch
 
+
+def init_logger():
+    logging.basicConfig(format='%(asctime)s - %(name)s/%(funcName)s - %(levelname)s - %(message)s',
+                        level=logging.DEBUG,
+                        datefmt="%m/%d/%Y %I:%M:%S %p")
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    return logger
+
+
+logger = init_logger()
+
+
 def set_seed(seed=42):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
-    print(f'using seed: %d' % (seed))
+    logger.info(f'using seed: {seed}')
 
 
 class EarlyStopping:
@@ -32,10 +45,3 @@ class EarlyStopping:
         else:
             self.best_score = score
             self.counter = 0
-
-def create_logger():
-    logging.basicConfig(format='%(asctime)s - %(name)s/%(funcName)s - %(levelname)s - %(message)s',
-                        level=logging.DEBUG,
-                        datefmt="%m/%d/%Y %I:%M:%S %p")
-    logger = logging.getLogger(__name__)
-    return logger
